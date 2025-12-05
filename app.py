@@ -21,15 +21,16 @@ TARGET_COUNTRIES = [
     "Sweden", "Norway"
 ]
 
-st.set_page_config(page_title="Netflix 數據戰情室 V4.1", layout="wide")
+st.set_page_config(page_title="Netflix 數據戰情室 V4.2", layout="wide")
 st.title("🎬 Netflix 深度數據分析系統 (含雙向視角)")
 
 # ==========================================
-# 2. 資料讀取 (含 Films/TV 切換邏輯)
+# 2. 資料讀取 (修正：支援 ZIP 壓縮檔)
 # ==========================================
 @st.cache_data
 def load_data(file_path):
     try:
+        # Pandas 非常聰明，只要看到 .zip 結尾，它會自動解壓縮讀取
         df = pd.read_csv(file_path)
         df['week'] = pd.to_datetime(df['week'])
         df['Week_Str'] = df['week'].dt.strftime('%Y-%m-%d')
@@ -37,9 +38,12 @@ def load_data(file_path):
     except FileNotFoundError:
         st.error(f"找不到檔案 '{file_path}'")
         return pd.DataFrame()
+    except Exception as e:
+        st.error(f"讀取錯誤：{e}")
+        return pd.DataFrame()
 
-# 讀取完整檔案
-df_raw = load_data('總表(new)_20251027.csv')
+# ⚠️ 注意：這裡改成讀取 .zip 檔
+df_raw = load_data('總表(new)_20251027.zip')
 
 if df_raw.empty:
     st.stop()
@@ -128,7 +132,7 @@ class NetflixAnalyzerV4:
             st.markdown("##### 📌 詳細數據表")
             st.dataframe(unique_counts, use_container_width=True)
 
-        # --- 2. [修正] 冠軍來源國 (Source of #1) ---
+        # --- 2. 冠軍來源國 (Source of #1) ---
         with tab2:
             st.subheader("誰統治了冠軍寶座？")
             st.caption("統計在此市場獲得「第 1 名」次數最多的製片國家。")
@@ -154,7 +158,6 @@ class NetflixAnalyzerV4:
                     st.dataframe(rank1_counts, use_container_width=True)
                     
                 st.markdown("##### 📌 冠軍作品明細")
-                # [FIX] 這裡修正為 groupby('Country')，因為 rank1_df 裡面還是用 Country 這個名字
                 rank1_titles = rank1_df.groupby('Country')['show_title'].unique().apply(lambda x: ", ".join(x)).reset_index(name='Champion_Titles')
                 st.dataframe(rank1_titles, use_container_width=True)
 
@@ -162,7 +165,7 @@ class NetflixAnalyzerV4:
         with tab3:
             st.subheader("內容來源全球地圖")
             
-            # 如果 tab1 沒跑可能導致 unique_counts 不存在，這裡重新算一次確保安全
+            # 重新計算確保安全
             unique_counts = filtered_df.groupby('Country')['show_title'].nunique().reset_index(name='Unique_Titles')
             
             fig_map = px.choropleth(
@@ -237,7 +240,6 @@ class NetflixAnalyzerV4:
                 unique_counts = filtered_df.groupby('Country')['show_title'].nunique().reset_index(name='Unique_Titles').sort_values('Unique_Titles', ascending=False)
                 top_source = unique_counts.iloc[0]['Country'] if not unique_counts.empty else "無"
                 
-                # 重新檢查 rank1
                 rank1_df = filtered_df[filtered_df['weekly_rank'] == 1]
                 champion_source = "無"
                 if not rank1_df.empty:
