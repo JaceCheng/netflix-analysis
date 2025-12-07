@@ -48,7 +48,7 @@ def load_data(file_path):
         return pd.DataFrame()
 
 # 讀取完整檔案
-df_raw = load_data('總表(new)_20251027.csv')
+df_raw = load_data('總表(new)_20251027.zip')
 
 if df_raw.empty:
     st.stop()
@@ -341,3 +341,4 @@ else:
         selected_country = st.sidebar.selectbox("選擇製片國家", final_country_list)
         if st.sidebar.button("開始分析"):
             analyzer.analyze_producer(selected_country)
+
