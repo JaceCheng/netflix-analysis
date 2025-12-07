@@ -22,8 +22,8 @@ TARGET_COUNTRIES = [
     "Sweden", "Norway"
 ]
 
-st.set_page_config(page_title="Netflix 數據戰情室 V6.2", layout="wide")
-st.title("🎬 Netflix 深度數據分析系統")
+st.set_page_config(page_title="Netflix 數據戰情室 V6.3", layout="wide")
+st.title("🎬 Netflix 深度數據分析系統 (最終優化版)")
 
 # ==========================================
 # 2. 資料讀取
@@ -35,7 +35,7 @@ def load_data(file_path):
         df['week'] = pd.to_datetime(df['week'])
         df['Week_Str'] = df['week'].dt.strftime('%Y-%m-%d')
         
-        # 確保 Views 相關欄位是數字
+        # 確保 Views 相關欄位是數字 (處理逗號)
         view_cols = [c for c in df.columns if 'Views' in c]
         for col in view_cols:
             if df[col].dtype == 'object':
@@ -174,20 +174,20 @@ class NetflixAnalyzerV6:
             "💾 原始數據"
         ])
 
-        # --- [NEW] 1. 輸出作品矩陣 (最終版) ---
+        # --- [優化版] 1. 輸出作品矩陣 ---
         with tab1:
             st.subheader(f"💎 {target_country} 輸出作品矩陣")
             st.markdown("""
             * **X軸**：海外上榜總週數 (續航力)
-            * **Y軸**：**輸出國家數 (廣度)**
-            * **大小**：**總觀看次數 (熱度)** (Log Scale)
+            * **Y軸**：輸出國家數 (廣度)
+            * **大小**：總觀看次數 (Log Scale) (熱度)
             * **顏色**：海外最佳名次 (越紅越好)
             """)
 
             export_only_df = filtered_df[filtered_df['country_name'] != target_country].copy()
             
             if export_only_df.empty:
-                st.info("該國作品僅在本國上榜，無海外輸出紀錄，無法繪製矩陣圖。")
+                st.info("該國作品僅在本國上榜，無海外輸出紀錄。")
             else:
                 # 彙整 Views
                 all_view_cols = [c for c in self.df.columns if 'Views' in c]
@@ -203,11 +203,11 @@ class NetflixAnalyzerV6:
 
                 unique_titles_view['Final_Views'] = unique_titles_view.apply(get_latest_views, axis=1)
                 
-                # 計算矩陣指標
+                # 計算指標
                 matrix_stats = export_only_df.groupby('show_title').agg(
-                    Export_Countries=('country_name', 'nunique'),      # Y軸：輸出國家數
-                    Weeks_Present_Overseas=('week', 'nunique'),        # X軸：海外上榜週數
-                    Best_Rank_Overseas=('weekly_rank', 'min')          # 顏色：最佳名次
+                    Export_Countries=('country_name', 'nunique'),      # Y軸
+                    Weeks_Present_Overseas=('week', 'nunique'),        # X軸
+                    Best_Rank_Overseas=('weekly_rank', 'min')          # Color
                 ).reset_index()
 
                 matrix_stats = pd.merge(matrix_stats, unique_titles_view[['show_title', 'Final_Views']], on='show_title', how='left')
@@ -220,16 +220,20 @@ class NetflixAnalyzerV6:
                 if not matrix_stats.empty:
                     fig_bubble = px.scatter(
                         matrix_stats,
-                        x='Weeks_Present_Overseas', # X軸
-                        y='Export_Countries',       # Y軸：改用國家數
-                        size='Log_Views',           # 大小：改用觀看數(Log)
+                        x='Weeks_Present_Overseas', 
+                        y='Export_Countries',       
+                        size='Log_Views',           
                         color='Best_Rank_Overseas', 
                         hover_name='show_title',
-                        hover_data={'Log_Views': False, 'Final_Views': True}, # Tooltip 顯示真實數字
+                        hover_data={'Log_Views': False, 'Final_Views': True}, 
                         
                         range_color=[1, 10], 
                         color_continuous_scale='Reds_r',
-                        size_max=60,
+                        
+                        # --- 視覺修正區 ---
+                        size_max=20,   # [修正] 縮小最大尺寸，避免遮擋
+                        opacity=0.7,   # [修正] 增加透明度，重疊時可透視
+                        # -----------------
                         
                         title=f"{target_country} 作品輸出強弱分佈",
                         labels={
@@ -239,7 +243,9 @@ class NetflixAnalyzerV6:
                             'Best_Rank_Overseas': '最佳名次'
                         }
                     )
-                    fig_bubble.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
+                    fig_bubble.update_traces(marker=dict(line=dict(width=0.5, color='DarkSlateGrey'))) # 細邊框
+                    fig_bubble.update_layout(margin=dict(l=20, r=20, t=50, b=20))
+                    
                     st.plotly_chart(fig_bubble, use_container_width=True)
 
                     st.markdown("##### 📌 矩陣數據詳表")
