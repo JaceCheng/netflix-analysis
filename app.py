@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import google.generativeai as genai
-import numpy as np
+import numpy as np  # 引入 numpy 處理 Log 計算
 
 # ==========================================
 # 1. 設定與常數
@@ -22,8 +22,8 @@ TARGET_COUNTRIES = [
     "Sweden", "Norway"
 ]
 
-st.set_page_config(page_title="Netflix 數據戰情室 V5", layout="wide")
-st.title("🎬 Netflix 深度數據分析系統 (含輸出矩陣氣泡圖)")
+st.set_page_config(page_title="Netflix 數據戰情室 V6", layout="wide")
+st.title("🎬 Netflix 深度數據分析系統 (矩陣優化版)")
 
 # ==========================================
 # 2. 資料讀取
@@ -36,7 +36,7 @@ def load_data(file_path):
         df['week'] = pd.to_datetime(df['week'])
         df['Week_Str'] = df['week'].dt.strftime('%Y-%m-%d')
         
-        # 確保 Views 相關欄位是數字，如果讀進來是字串(含逗號)要處理
+        # 確保 Views 相關欄位是數字
         view_cols = [c for c in df.columns if 'Views' in c]
         for col in view_cols:
             if df[col].dtype == 'object':
@@ -86,7 +86,7 @@ def ask_gemini(api_key, prompt, model_name):
 # ==========================================
 # 5. 分析核心類別
 # ==========================================
-class NetflixAnalyzerV5:
+class NetflixAnalyzerV6:
     def __init__(self, df, api_key, model_name):
         self.df = df.copy()
         self.api_key = api_key
@@ -129,7 +129,7 @@ class NetflixAnalyzerV5:
                 st.dataframe(rank1_df.groupby('Country')['show_title'].unique().apply(lambda x: ", ".join(x)).reset_index(name='Champion_Titles'), use_container_width=True)
 
         with tab3: # 地圖
-            unique_counts = filtered_df.groupby('Country')['show_title'].nunique().reset_index(name='Unique_Titles') # Refreshed
+            unique_counts = filtered_df.groupby('Country')['show_title'].nunique().reset_index(name='Unique_Titles') 
             st.plotly_chart(px.choropleth(unique_counts, locations="Country", locationmode="country names", color="Unique_Titles", color_continuous_scale='Greens', title=f"{target_country} 的內容進口地圖"), use_container_width=True)
 
         with tab4: # 本國輸出
@@ -170,9 +170,8 @@ class NetflixAnalyzerV5:
 
         filtered_df = self.df[self.df['Country'] == target_country].copy()
 
-        # 這裡有 7 個分頁
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "💎 輸出作品矩陣", # New!
+            "💎 輸出作品矩陣", 
             "🚀 最強傳播作品", 
             "🗺️ 全球版圖", 
             "🌍 海外市場表現",
@@ -183,89 +182,77 @@ class NetflixAnalyzerV5:
 
         # --- [NEW] 1. 輸出作品矩陣 (氣泡圖) ---
         with tab1:
-            st.subheader(f"💎 {target_country} 輸出作品矩陣 (續航力 vs 熱度 vs 名次)")
+            st.subheader(f"💎 {target_country} 輸出作品矩陣")
             st.markdown("""
-            * **X軸**：海外平均上榜週數 (續航力)
-            * **Y軸**：全球觀看次數 (Log Scale) (熱度)
+            * **X軸**：海外上榜總週數 (只要當週有上榜任一國家就算 1 次，**不重複計算國家**)
+            * **Y軸**：輸出國家數
+            * **大小**：總觀看次數 (Log Scale)
             * **顏色**：海外最佳名次 (越紅越好)
-            * **大小**：輸出國家數 (廣度)
             """)
 
-            # 1. 資料處理：排除本國數據，只看海外
+            # 1. 資料處理：排除本國數據
             export_only_df = filtered_df[filtered_df['country_name'] != target_country].copy()
             
             if export_only_df.empty:
                 st.info("該國作品僅在本國上榜，無海外輸出紀錄，無法繪製矩陣圖。")
             else:
                 # 2. 彙整 Views (取最新不為空值)
-                # 找出所有 Views 欄位，並依照時間倒序排列 (最新的在前面)
                 all_view_cols = [c for c in self.df.columns if 'Views' in c]
-                # 假設欄位格式是 Views_YYYYH1，我們簡單排序一下 (降序)
-                all_view_cols.sort(reverse=True)
+                all_view_cols.sort(reverse=True) # 倒序: 2025H1 -> 2024H2 ...
                 
-                # 3. 準備聚合數據
-                # 先取出每部片的基本屬性 (Views 應該是跟著片名走的，我們取每部片的最新一筆 Views)
-                # 注意：這裡我們需要一個對照表：Show Title -> Latest Views
-                # 我們用全表來做這個對照表，以免 filtered_df 漏掉某些資訊
                 unique_titles_view = self.df[['show_title'] + all_view_cols].drop_duplicates(subset=['show_title'])
                 
-                # 定義函式：由左至右找第一個非 NaN 的值
                 def get_latest_views(row):
                     for col in all_view_cols:
                         if pd.notna(row[col]) and row[col] > 0:
                             return row[col]
-                    return 0 # 找不到就補 0
+                    return 0
 
                 unique_titles_view['Final_Views'] = unique_titles_view.apply(get_latest_views, axis=1)
                 
-                # 4. 計算矩陣指標
-                # Group By Show Title
+                # 3. 計算矩陣指標
                 matrix_stats = export_only_df.groupby('show_title').agg(
-                    Export_Countries=('country_name', 'nunique'),      # 輸出國家數 (Size)
-                    Total_Weeks_Overseas=('week', 'count'),            # 海外總週數
-                    Best_Rank_Overseas=('weekly_rank', 'min')          # 海外最佳名次 (Color)
+                    Export_Countries=('country_name', 'nunique'),      # Y軸：輸出國家數
+                    Weeks_Present_Overseas=('week', 'nunique'),        # X軸：海外上榜週數 (只要有出現的那週就算1)
+                    Best_Rank_Overseas=('weekly_rank', 'min')          # 顏色：最佳名次
                 ).reset_index()
 
-                # 計算平均週數 (X軸)
-                matrix_stats['Avg_Weeks_Overseas'] = matrix_stats['Total_Weeks_Overseas'] / matrix_stats['Export_Countries']
-
-                # 合併 Views (Y軸)
+                # 合併 Views (Size)
                 matrix_stats = pd.merge(matrix_stats, unique_titles_view[['show_title', 'Final_Views']], on='show_title', how='left')
                 matrix_stats['Final_Views'] = matrix_stats['Final_Views'].fillna(0)
+                
+                # 計算 Log Views 供氣泡大小使用 (加1避免log(0))
+                matrix_stats['Log_Views'] = np.log10(matrix_stats['Final_Views'] + 1)
 
-                # 5. 繪圖
+                # 4. 繪圖
                 if not matrix_stats.empty:
                     fig_bubble = px.scatter(
                         matrix_stats,
-                        x='Avg_Weeks_Overseas',
-                        y='Final_Views',
-                        size='Export_Countries',
-                        color='Best_Rank_Overseas',
+                        x='Weeks_Present_Overseas', # X軸
+                        y='Export_Countries',       # Y軸
+                        size='Log_Views',           # 大小 (使用 Log 值)
+                        color='Best_Rank_Overseas', # 顏色
                         hover_name='show_title',
+                        hover_data={'Log_Views': False, 'Final_Views': True}, # Tooltip 顯示真實數字
                         
-                        # 關鍵視覺設定
-                        log_y=True, # 對數座標
-                        range_color=[1, 10], # 顏色固定 1-10
-                        color_continuous_scale='Reds_r', # 1=紅(好), 10=淺
+                        range_color=[1, 10], 
+                        color_continuous_scale='Reds_r',
                         
                         title=f"{target_country} 作品輸出強弱分佈",
                         labels={
-                            'Avg_Weeks_Overseas': '海外平均上榜週數',
-                            'Final_Views': '觀看次數 (Log Scale)',
+                            'Weeks_Present_Overseas': '海外上榜週數 (不重複)',
                             'Export_Countries': '輸出國家數',
+                            'Final_Views': '總觀看次數',
                             'Best_Rank_Overseas': '最佳名次'
                         }
                     )
-                    # 加強氣泡邊框
                     fig_bubble.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
                     st.plotly_chart(fig_bubble, use_container_width=True)
 
                     st.markdown("##### 📌 矩陣數據詳表")
-                    # 整理一下表格顯示
                     display_table = matrix_stats.sort_values('Final_Views', ascending=False)
-                    # 格式化 Views 加逗號
                     display_table['Final_Views_Formatted'] = display_table['Final_Views'].apply(lambda x: "{:,.0f}".format(x))
-                    st.dataframe(display_table, use_container_width=True)
+                    st.dataframe(display_table[['show_title', 'Weeks_Present_Overseas', 'Export_Countries', 'Best_Rank_Overseas', 'Final_Views_Formatted']], use_container_width=True)
                 else:
                     st.warning("數據計算後為空。")
 
@@ -324,7 +311,7 @@ class NetflixAnalyzerV5:
 # ==========================================
 # 6. 主程式執行邏輯
 # ==========================================
-analyzer = NetflixAnalyzerV5(df_main, gemini_api_key, selected_model)
+analyzer = NetflixAnalyzerV6(df_main, gemini_api_key, selected_model)
 analysis_mode = st.sidebar.radio("分析視角", ("觀看國 (Viewer)", "製片國 (Producer)"))
 
 available_countries = sorted(list(set(df_main['country_name'].unique()) | set(df_main['Country'].unique())))
@@ -341,4 +328,3 @@ else:
         selected_country = st.sidebar.selectbox("選擇製片國家", final_country_list)
         if st.sidebar.button("開始分析"):
             analyzer.analyze_producer(selected_country)
-
